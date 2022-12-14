@@ -1,2 +1,2 @@
-# Unrolled U-Net for Propeller DWI Reconstruction
+# Unrolled U-Net for BUDA cEPI dMRI Reconstruction
 MRI reconstruction with unrolled U-Net as priors
