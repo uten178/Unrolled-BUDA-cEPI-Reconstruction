@@ -31,11 +31,11 @@ num_polarities = 2
 num_batchs = 1  
 
 ########################################################################################################################    
-input_paths = glob.glob(os.path.join('Train/*.mat'))              
+input_paths = glob.glob(os.path.join('Train_DATA/*.mat'))              
 training_gen = BUDA_DataGenerator(input_paths,num_rows, num_cols, num_coils, num_polarities, num_time_segs,num_batchs,shuffle=True)
 
 ####################################################################################
-input_paths = glob.glob(os.path.join('Validate/*.mat'))     
+input_paths = glob.glob(os.path.join('Validate_DATA/*.mat'))     
 val_gen = BUDA_DataGenerator(input_paths,num_rows, num_cols, num_coils, num_polarities, num_time_segs,num_batchs,shuffle=True)
 
 ########################################################################################################################
