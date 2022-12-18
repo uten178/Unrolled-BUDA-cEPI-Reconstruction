@@ -30,7 +30,7 @@ num_time_segs = 50
 num_polarities = 2
 num_batchs = 1  
 
-input_paths = glob.glob(os.path.join('Test/*.mat'))     
+input_paths = glob.glob(os.path.join('Test_DATA/*.mat'))     
 test_gen = BUDA_DataGenerator(input_paths,num_rows, num_cols, num_coils, num_polarities, num_time_segs,num_batchs,shuffle=True)
 #######################################################################################################################
 # "Important" parameters
