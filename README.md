@@ -9,4 +9,4 @@ Test_BUDA_cEPI.py
 # Example data for model training and testing
 /Train_DATA/*.mat\
 /Validate_DATA/*.mat\
-/Test_DATA/*.mat\
+/Test_DATA/*.mat
