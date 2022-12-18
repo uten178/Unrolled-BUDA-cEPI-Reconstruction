@@ -6,3 +6,7 @@ Train_BUDA_cEPI.py
 Test_BUDA_cEPI.py
 # Pre-trained model
 /trained_weights/KI_UNET.hdf5
+# Example data for model training and testing
+/Train_DATA/*.mat
+/Validate_DATA/*.mat
+/Test_DATA/*.mat
