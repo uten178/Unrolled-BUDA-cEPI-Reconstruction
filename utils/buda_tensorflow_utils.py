@@ -177,7 +177,7 @@ class BUDA_DataGenerator(tf.keras.utils.Sequence):
         mask_buda = np.empty((self.batch_size,self.num_rows,self.num_cols,self.num_polarities,self.num_time_segs)).astype(np.csingle)
         wmap_buda = np.empty((self.batch_size,self.num_rows,self.num_cols,self.num_polarities,self.num_time_segs)).astype(np.csingle)
         kdata_buda = np.empty((self.batch_size,self.num_rows,self.num_cols,self.num_coils,self.num_polarities)).astype(np.csingle)
-        label_img = np.empty((self.batch_size,self.num_rows+20,self.num_cols+20,self.num_polarities*2))
+        label_img = np.empty((self.batch_size,self.num_rows+20,self.num_cols+20,1))
         b0_img = np.empty((self.batch_size,self.num_rows+20,self.num_cols+20,self.num_polarities)).astype(np.csingle)
 
         for idx, curr_filename in enumerate(filenames):
@@ -199,17 +199,14 @@ class BUDA_DataGenerator(tf.keras.utils.Sequence):
         # Put whatever it needs to generate Ahb, csm, mask, kdata, fully_sampled_ispace
         # for the current sample. For example,
         b0_img = temp['b0'].astype(np.csingle)
-        b0_img = b0_img/np.max(np.abs(b0_img))
         label_img = temp['label_img'].astype(np.csingle)
-        label_img = label_img/np.max(np.abs(label_img))
-        label_img = complex_to_real(label_img)
         kdata_buda = temp['kdata_buda'].astype(np.csingle)
-        kdata_buda = kdata_buda/np.max(np.abs(kdata_buda))
         mask_buda = temp['mask_buda'].astype(np.csingle)
         csm_buda = temp['csm_buda'].astype(np.csingle)
         wmap_buda = temp['wmap_buda'].astype(np.csingle)        
 
-        return 3*kdata_buda, csm_buda, mask_buda, wmap_buda, b0_img, label_img
+        return 3*kdata_buda, csm_buda, mask_buda, wmap_buda, b0_img, tf.reduce_mean(tf.math.abs(label_img),axis=2,keepdims=True)
+
 
 #######################################################################################
 fft2c = Lambda(lambda x: fft2c_tf(x))
@@ -405,44 +402,51 @@ import tensorflow as tf
 from tensorflow.keras.layers import Input, Add, Subtract, Lambda, LayerNormalization
 from tensorflow.keras.models import Model
 
-
-def KINet(num_rows,
+def KINet(data_consistency_type,
+         num_rows,
          num_cols,
          num_coils,
          num_segs,
          num_polarities,
-         num_GD_blocks,
-         Batch_size,
-         num_inner_GD_iters,
+         batch_size,
+         num_GD_blocks=6,
+         num_inner_GD_iters=1,
          GD_step_size=0.9,
          activation_type='prelu',
          use_DL_regularizer=True,
-         pretrained_unrolled_net_path=None,
+         pretrained_reg_net_path=None,
+         pretrained_inet_path=None,
          data_consistency_before_reg=True,
          use_layer_norm=False):
 
+    if pretrained_inet_path is not None:
+        pretrained_weights_reg_path = None
 
-## All Inputs
+    # undersampled_ispace_buda = Input(shape=(num_rows-8, num_cols-8), dtype=tf.complex64)  # undersampled (image space)
     csm_buda = Input(shape=(num_rows, num_cols, num_coils), dtype=tf.complex64)
     mask_buda = Input(shape=(num_rows, num_cols, num_polarities, num_segs), dtype=tf.complex64)
     kdata_buda = Input(shape=(num_rows, num_cols,num_coils, num_polarities), dtype=tf.complex64)
     wmap_buda = Input(shape=(num_rows, num_cols,num_polarities, num_segs), dtype=tf.complex64)
     b0_img = Input(shape=(num_rows+20, num_cols+20,num_polarities), dtype=tf.complex64)
-##
-      
-    if use_DL_regularizer:     
 
+    if use_DL_regularizer:
+
+        from models.UNet2D_ import UNet2D_
         regI_models = {}
         regK_models = {}
         for idx_block in range(round(num_GD_blocks/2)):
-            regI_models[str(idx_block)] = UNet2D_(im_size=num_rows+20, kernel_size=3, num_out_chan_highest_level=64,
+            regI_models[str(idx_block)] = UNet2D_(im_size=num_rows+20, kernel_size=3, num_out_chan_highest_level=32,
                            depth=3, num_chan_increase_rate=2, activation_type=activation_type,
-                           dropout_rate=0.1, SEPARABLE_CONV=False, SKIP_CONNECTION_AT_THE_END=True,
+                           dropout_rate=0.05, SEPARABLE_CONV=False, SKIP_CONNECTION_AT_THE_END=True,
                            num_input_chans=16, num_output_chans=8)           
-            regK_models[str(idx_block)] = UNet2D_(im_size=num_rows+20, kernel_size=3, num_out_chan_highest_level=64,
+            regK_models[str(idx_block)] = UNet2D_(im_size=num_rows+20, kernel_size=3, num_out_chan_highest_level=32,
                            depth=3, num_chan_increase_rate=2, activation_type=activation_type,
-                           dropout_rate=0.1, SEPARABLE_CONV=False, SKIP_CONNECTION_AT_THE_END=True,
+                           dropout_rate=0.05, SEPARABLE_CONV=False, SKIP_CONNECTION_AT_THE_END=True,
                            num_input_chans=16, num_output_chans=8)
+
+            if pretrained_reg_net_path is not None:
+                regI_models[str(idx_block)].load_weights(pretrained_reg_net_path)
+                regK_models[str(idx_block)].load_weights(pretrained_reg_net_path)
     
 ########################################################################################################################
     b0_i = virtual_coil(b0_img)
@@ -450,7 +454,8 @@ def KINet(num_rows,
     b0_i = complex_to_real(b0_i)
     b0_k = complex_to_real(b0_k)
 ########################################################################################################################
-    x = compute_Ah()(kdata_buda, csm_buda, mask_buda, wmap_buda, num_rows, num_cols, num_coils, num_segs, num_polarities)  
+    sc_factor = 1
+    x = compute_Ah()(kdata_buda, csm_buda, mask_buda, wmap_buda, num_rows, num_cols, num_coils, num_segs, num_polarities)
     Ahb = x
     compute_AhAx_model = getDataTerm_AhAx()
 
@@ -476,21 +481,21 @@ def KINet(num_rows,
 
                 x = virtual_coil(x) ## complex conjugate channel ... actual & virtual up & down ... 4 channels
                 # image- to k-space
-                x = fft2c_coil(x)
+                x = fft2c_coil(x)*sc_factor
 
                 # complex to real: output shape = batch x row x col x 2 (real/imag)
                 x = complex_to_real(x) ## complex conjugate channel ... actual & virtual up & down .. real & imaginary ... 8 channels
-                
+
                 # Pass the images to the regularization network
                 if use_layer_norm:
                     x = LayerNormalization(axis=[1,2,3])(x)
                 x = regK_models[str(idx_block)](tf.concat(axis=3, values=[x, b0_k]))
 
-                # Real to complex              
+                # Real to complex               
                 x = real_to_complex(x)
-            
+
                 # k- to image-space
-                x = ifft2c_coil(x)
+                x = ifft2c_coil(x)/sc_factor
                 x = actual_coil(x) ## back to actual up&down complex number ... 2 channels
 
             for idx_inner_iter in range(num_inner_GD_iters):
@@ -527,7 +532,7 @@ def KINet(num_rows,
             if use_DL_regularizer:
                 x = virtual_coil_tf(x)
                 # image- to k-space
-                x = fft2c_coil(x)
+                x = fft2c_coil(x)*sc_factor
 
                 # complex to real: output shape = batch x row x col x 2 (real/imag)
                 x = complex_to_real(x)
@@ -541,7 +546,7 @@ def KINet(num_rows,
                 x = real_to_complex(x)
 
                 # k- to image-space
-                x = ifft2c_coil(x)
+                x = ifft2c_coil(x)/sc_factor
                 x = actual_coil(x)
 
             for idx_inner_iter in range(num_inner_GD_iters):
@@ -586,9 +591,17 @@ def KINet(num_rows,
 
                 temp = Lambda(lambda x: x * GD_step_size)(GD_grad)
                 x = Subtract()([x, temp])
-    
-    output_data = complex_to_real(x)            
-    output_data = normalize(output_data,Batch_size)## unit normalization
-    model = Model(inputs=[kdata_buda, csm_buda, mask_buda, wmap_buda, b0_img], outputs=output_data)    
+
+    #output_data = complex_to_real(x)#tf.concat(axis=3, values=[complex_to_real(x), complex_to_real(b0_img)])
+    x = tf.reduce_mean(tf.math.abs(x),axis=3,keepdims=True)
+    output_data = data_normalize(x,batch_size)
+
+    # model = Model(inputs=[undersampled_ispace_buda, csm_buda, mask_buda, wmap_buda, kdata_buda], outputs=output_data)
+    model = Model(inputs=[kdata_buda, csm_buda, mask_buda, wmap_buda, b0_img], outputs=output_data)
+
+    if pretrained_inet_path is not None:
+        model.load_weights(pretrained_inet_path)
 
     return model
+
+
