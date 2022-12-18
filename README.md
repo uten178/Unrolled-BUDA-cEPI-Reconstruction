@@ -1,6 +1,6 @@
 # Unrolled U-Net for BUDA cEPI dMRI Reconstruction
 MRI reconstruction with unrolled U-Net as priors
-# For Training
+# For Training the model
 Train_BUDA_cEPI.py
-# For Testing
+# For Testing the model
 Test_BUDA_cEPI.py
